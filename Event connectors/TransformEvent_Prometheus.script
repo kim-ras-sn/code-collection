@@ -1,0 +1,176 @@
+var Event = Packages.com.snc.commons.eventmgmt.Event;
+var JSONObject = Packages.org.json.JSONObject;
+
+var TransformEvents_Prometheus = Class.create();
+TransformEvents_Prometheus.prototype = {
+		
+    initialize: function() {
+    },
+    
+	//This function is mandatory for MID Transform Script
+	transform: function() {
+		var events = [];
+
+		ms.log("TransformEvents_Prometheus received body:" + messageBody);
+	
+		try {
+			var requestBody = JSON.parse(messageBody);
+
+			if (requestBody) {
+				var prometheusAlerts = requestBody.alerts;
+				for (var alerts = 0; alerts < prometheusAlerts.length; alerts++) {
+					var event = new Event();
+					var eventObj = {};
+					var alert = prometheusAlerts[alerts];
+					
+					//Prime record
+					eventObj.source = "PrometheiusMID";
+					eventObj.event_class = "PrometheusClass";
+					
+					//ms.log("TransformEvents_Prometheus Alert Record:" + JSON.stringify(alert));			
+					this._eventMapping(alert, eventObj);
+					
+					//Move all to the Event object
+					for (key in eventObj) {
+						if (key !== "additional_info")
+							event.setField(key, eventObj[key]);
+					}
+					for (key in eventObj.additional_info) {
+						event.setField(key, eventObj.additional_info[key]);
+					}
+					
+					ms.log("TransformEvents_Prometheus Event:" + JSON.stringify(eventObj));
+										
+					events.push(event);
+				}
+			}
+		} catch (e) {
+			ms.log('TransformEvents_Prometheus - ERROR - prom catch error ' + e);
+		}	
+
+		ms.log('TransformEvents_Prometheus - returns ' + events.length + " Events");
+		return events;
+	},
+	
+	//Helper Functions 
+	/////////////////////
+	
+	_eventMapping : function(alertArr, gr) {
+		//gs.info('prom event mapping function ' + JSON.stringify(alertArr));
+		var prometheusStartTime = alertArr.startsAt;
+		var prometheusEndTime = alertArr.endsAt;
+		var prometheusLabel = alertArr.labels;
+		var prometheusSeverity = prometheusLabel.severity;
+		var prometheusAnnotations = alertArr.annotations;
+		var prometheusFingerprint = alertArr.fingerprint;
+		var prometheusState = alertArr.status;
+
+		if(prometheusState == 'resolved')
+			this._timeOfEventMapping(prometheusEndTime, gr);
+		else
+			this._timeOfEventMapping(prometheusStartTime, gr);
+
+		this._labelMapping(prometheusLabel, gr);
+		this._annotationMapping(prometheusAnnotations, gr);
+		this._additionalInfoMapping(alertArr, gr);
+		this._severityMapping(prometheusSeverity, prometheusState, prometheusLabel, gr);
+		this._messageKeyMapping(prometheusFingerprint, gr);
+	},
+
+	_timeOfEventMapping : function(prometheusTimestamp, gr) {
+		
+		var sTime = prometheusTimestamp.substr(0, prometheusTimestamp.indexOf('.')).replace('T', ' ');
+//		var time = "" + prometheusTimestamp;
+        ms.log("Date:" + sTime + " Type:" + typeof sTime);
+        ms.log("Date:" + prometheusTimestamp + " Type:" + typeof prometheusTimestamp);
+//        var dDate = new Date("" + prometheusTimestamp);
+//        var dDate = new Date(Date.parse(prometheusTimestamp));
+//        ms.log("Date:" + dDate + " Type:" + typeof dDate);
+//        var sOutDate = dDate.toISOString();
+//        ms.log("Date:" + sOutDate + " Type:" + typeof sOutDate);
+
+		gr.time_of_event = sTime;
+//		gr.time_of_event = prometheusTimestamp.substring(0, prometheusTimestamp.indexOf('.'));
+	
+	},
+	
+	_labelMapping : function(prometheusLabel, gr) {
+		if (prometheusLabel.hasOwnProperty("metricName")) {
+			gr.metric_name = prometheusLabel.metricName;
+		}
+		if (prometheusLabel.hasOwnProperty("resource")) {
+			gr.resource = prometheusLabel.resource;
+		}
+
+		if (prometheusLabel.hasOwnProperty("instance")) {
+			gr.node = prometheusLabel.instance.split(':')[0];
+		}
+
+		if (prometheusLabel.hasOwnProperty("type")) {
+			gr.type = prometheusLabel.type;
+		}
+	},
+
+	_annotationMapping : function(prometheusAnnotations, gr) {
+		if (prometheusAnnotations.hasOwnProperty("description")) {
+			gr.description = prometheusAnnotations.description;
+		} else if (prometheusAnnotations.hasOwnProperty("summary")) {
+			gr.description = prometheusAnnotations.summary;
+		}
+	},
+	
+	_additionalInfoMapping : function(jsonObject, gr) {
+		//Flatten object - but include all fields for now.
+		var additional_info = {};
+		this.updateAdditionalInfo("",jsonObject,additional_info);
+		/*Iterates over Additional information JSON object and adds all nested objects' fields as fields of the Additional information object*/
+		var notDone = true;
+		while (notDone) {
+			notDone = false;
+			for (var key in additional_info) {
+				if (Object.prototype.toString.call(additional_info[key]) == '[object Object]') {
+					notDone = true;
+					this.updateAdditionalInfo(key,additional_info[key],additional_info);
+					additional_info[key] = "";
+				}
+			}
+		}
+		gr.additional_info = additional_info;
+	},
+	
+	_severityMapping: function(prometheusSeverity, prometheusState, prometheusLabel, gr) {
+		var PROMETHEUS_2_SERVICENOW_SEVERITY_MAP = {
+			'critical': '1',
+			'major':'2',
+			'warning': '4',
+			'ok': '5'
+		};
+		if (prometheusState == 'resolved') {
+			gr.resolution_state = 'Closing';
+			gr.severity = '0';
+		}
+		if (prometheusState == 'firing') {
+			gr.severity = '4';                                                          //<-- DEFAULT SEVERITY
+			if (prometheusLabel.hasOwnProperty("severity")) {
+				if (PROMETHEUS_2_SERVICENOW_SEVERITY_MAP.hasOwnProperty(prometheusSeverity))
+					gr.severity = PROMETHEUS_2_SERVICENOW_SEVERITY_MAP[prometheusSeverity];
+			}
+		}
+	},
+	
+	_messageKeyMapping : function(prometheusFingerprint, gr) {
+		gr.message_key = prometheusFingerprint;
+	},
+	
+	updateAdditionalInfo: function(field,jsonObject,additionalInfo) {
+        for (var key in jsonObject) {
+            var newKey = key;
+            if (field != "") {
+                newKey = field + '_' + key;
+            }
+			additionalInfo[newKey] = jsonObject[key];
+        }
+    },
+	
+    type: 'TransformEvents_Prometheus'
+};
