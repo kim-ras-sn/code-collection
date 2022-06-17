@@ -1,5 +1,12 @@
+//  Prometheus MID TransformEvent script
+// 
+//  Version : 2.0
 var Event = Packages.com.snc.commons.eventmgmt.Event;
 var JSONObject = Packages.org.json.JSONObject;
+var DateFormatter = Packages.java.time.format.DateTimeFormatter;
+var OffsetDateTime = Packages.java.time.OffsetDateTime;
+var ZoneId = Packages.java.time.ZoneId;
+
 
 var TransformEvents_Prometheus = Class.create();
 TransformEvents_Prometheus.prototype = {
@@ -78,20 +85,14 @@ TransformEvents_Prometheus.prototype = {
 	},
 
 	_timeOfEventMapping : function(prometheusTimestamp, gr) {
-		
-		var sTime = prometheusTimestamp.substr(0, prometheusTimestamp.indexOf('.')).replace('T', ' ');
-//		var time = "" + prometheusTimestamp;
-        ms.log("Date:" + sTime + " Type:" + typeof sTime);
-        ms.log("Date:" + prometheusTimestamp + " Type:" + typeof prometheusTimestamp);
-//        var dDate = new Date("" + prometheusTimestamp);
-//        var dDate = new Date(Date.parse(prometheusTimestamp));
-//        ms.log("Date:" + dDate + " Type:" + typeof dDate);
-//        var sOutDate = dDate.toISOString();
-//        ms.log("Date:" + sOutDate + " Type:" + typeof sOutDate);
-
-		gr.time_of_event = sTime;
-//		gr.time_of_event = prometheusTimestamp.substring(0, prometheusTimestamp.indexOf('.'));
-	
+		//Read Date
+		var dDate = OffsetDateTime.parse(prometheusTimestamp, DateFormatter.ISO_OFFSET_DATE_TIME);
+		ms.log("Date - dDate:" + dDate + " Type:" + typeof dDate);
+		//Change to local Time Zone
+		var sOutDate = dDate.atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().toString();
+		//Remove T and milli secunds.
+        sOutDate = sOutDate.substr(0, prometheusTimestamp.indexOf('.')).replace('T', ' ');
+		gr.time_of_event = sOutDate;
 	},
 	
 	_labelMapping : function(prometheusLabel, gr) {
