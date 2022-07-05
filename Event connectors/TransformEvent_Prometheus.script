@@ -1,6 +1,6 @@
 //  Prometheus MID TransformEvent script
 // 
-//  Version : 2.0
+//  Version : 2.1
 var Event = Packages.com.snc.commons.eventmgmt.Event;
 var JSONObject = Packages.org.json.JSONObject;
 var DateFormatter = Packages.java.time.format.DateTimeFormatter;
@@ -84,12 +84,15 @@ TransformEvents_Prometheus.prototype = {
 		this._messageKeyMapping(prometheusFingerprint, gr);
 	},
 
+	//Ensure Time of event is in UTC time
 	_timeOfEventMapping : function(prometheusTimestamp, gr) {
 		//Read Date
 		var dDate = OffsetDateTime.parse(prometheusTimestamp, DateFormatter.ISO_OFFSET_DATE_TIME);
 		ms.log("Date - dDate:" + dDate + " Type:" + typeof dDate);
-		//Change to local Time Zone
-		var sOutDate = dDate.atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime().toString();
+		//Convert to UTC
+		var dOutDate = dDate.atZoneSameInstant(ZoneId.of("Z"));
+		//ms.log("Date - dOutDate:" + dOutDate+ " Type:" + typeof dOutDate);
+		var sOutDate = dOutDate.toLocalDateTime().toString();
 		//Remove T and milli secunds.
         sOutDate = sOutDate.substr(0, prometheusTimestamp.indexOf('.')).replace('T', ' ');
 		gr.time_of_event = sOutDate;
